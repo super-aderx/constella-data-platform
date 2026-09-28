@@ -1,10 +1,11 @@
+import random
 from collections import Counter
 from datetime import date
 
 import pytest
 
 from generator.load import bronze_rows
-from generator.simulate import simulate
+from generator.simulate import CLOSE_HOUR, OPEN_HOUR, Simulation, simulate
 from generator.tenants import all_tenants
 
 END = date(2026, 9, 26)
@@ -63,3 +64,29 @@ def test_customers_register_before_they_order(run):
             registered[e.payload["customer_id"]] = e.occurred_at
         elif e.event_type == "OrderPlaced":
             assert e.payload["customer_id"] in registered
+
+
+def test_catalog_changes_follow_creation(run):
+    # DAYS is shorter than every catalog change offset, so this covers the short --days case.
+    spec, events, _ = run
+    created, latest_price = {}, {}
+    for e in events:  # in occurred_at order
+        kind, p = e.event_type, e.payload
+        key = p.get("product_id") or p.get("category_id")
+        if kind in ("ProductCreated", "CategoryCreated"):
+            created[key] = e.occurred_at
+        elif kind in ("ProductUpdated", "CategoryUpdated"):
+            assert key in created, f"{kind} for {p.get('sku') or p.get('slug')} before creation"
+        elif kind == "PriceChanged":
+            latest_price[p["sku"]] = p["amount_cents"]
+    assert latest_price == {spec.sku(p.code): p.price_cents for p in spec.products}
+
+
+@pytest.mark.parametrize("day", [date(2026, 3, 8), date(2025, 11, 2)])
+def test_order_times_keep_store_hours_on_dst_days(day):
+    spec = all_tenants()["maple-corner"]
+    sim = Simulation(spec, DAYS, END, seed=42)
+    for s in range(500):
+        local = sim.order_time(random.Random(s), day).astimezone(sim.tz)
+        assert local.date() == day
+        assert OPEN_HOUR <= local.hour < CLOSE_HOUR

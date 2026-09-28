@@ -104,7 +104,15 @@ class Simulation:
 
     def build_catalog(self) -> None:
         spec, f = self.spec, self.f
-        opened = self.local(self.start - timedelta(days=7), time(6, 0))
+        # A week before the first simulated day, or before the earliest catalog change if a short
+        # --days would otherwise put a rename, price change or discontinuation before creation.
+        offsets = [c.renamed_from[0] for c in spec.categories if c.renamed_from]
+        for p in spec.products:
+            offsets += [p.renamed_from[0]] if p.renamed_from else []
+            offsets += [p.earlier_price[0]] if p.earlier_price else []
+            offsets += [p.discontinued] if p.discontinued is not None else []
+        first_change = self.end - timedelta(days=max(offsets, default=0) + 1)
+        opened = self.local(min(self.start - timedelta(days=7), first_change), time(6, 0))
         ids: dict[str, object] = {}
 
         for i, c in enumerate(spec.categories):
@@ -155,10 +163,10 @@ class Simulation:
         else:
             hour = rng.uniform(OPEN_HOUR, CLOSE_HOUR)
         hour = min(max(hour, OPEN_HOUR), CLOSE_HOUR - 1e-6)
-        seconds = hour * 3600
-        return self.local(day, time(0)) + timedelta(
-            seconds=int(seconds), milliseconds=rng.randrange(1000)
-        )
+        # Build the local wall-clock time before converting, so DST days keep store hours.
+        seconds = int(hour * 3600)
+        at = time(seconds // 3600, seconds // 60 % 60, seconds % 60)
+        return self.local(day, at) + timedelta(milliseconds=rng.randrange(1000))
 
     def order_days(self, rng: random.Random, persona: Persona, first: float) -> list[float]:
         """Order times in days since the first simulated day's midnight."""
