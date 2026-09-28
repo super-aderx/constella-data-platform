@@ -1,0 +1,29 @@
+sources:
+  - name: bronze
+    description: Raw TPS (StarMart) events as loaded, one row per Kafka message. Append-only.
+    tables:
+      - name: tps_events
+        description: >
+          Outbox events from every tenant's StarMart. Duplicates are expected (at-least-once
+          delivery), and rows arrive late and out of order. Business time is occurred_at.
+        columns:
+          - name: tenant_id
+            data_tests: [not_null]
+          - name: event_id
+            data_tests: [not_null]
+          - name: event_type
+            data_tests: [not_null]
+          - name: payload
+            data_tests: [not_null]
+
+  - name: platform
+    description: The tenant registry, owned by the data platform.
+    tables:
+      - name: tenants
+        columns:
+          - name: tenant_id
+            data_tests: [unique, not_null]
+          - name: tenant_key
+            data_tests: [unique, not_null]
+          - name: timezone
+            data_tests: [not_null]

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only set here: a called workflow sharing the caller's group would wait on itself.
+# Only PR runs are cancelled by a newer push; every commit on main gets a finished run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hooks:
+    name: Hooks (prek)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+
+      # warehouse.yml runs ruff and sqlfluff (with PR annotations), so skip those hooks here.
+      - name: Run prek hooks
+        run: uvx --no-build prek@0.5.3 run --all-files --show-diff-on-failure
+        env:
+          SKIP: ruff-check,ruff-format,sqlfluff-fix,sqlfluff-lint
+
+  warehouse:
+    name: Warehouse
+    uses: ./.github/workflows/warehouse.yml
+
+  # The one check to require in branch protection: passes only if every job above succeeded
+  # (a skipped job fails it too). Doesn't run when the whole run was cancelled.
+  ci-passes:
+    name: ci-passes
+    if: ${{ !cancelled() }}
+    needs: [hooks, warehouse]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: exit 1

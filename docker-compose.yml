@@ -1,0 +1,31 @@
+# Local warehouse. Host port 5433, because StarMart's own Postgres takes 5432 when both
+# stacks run on constella-net.
+name: constella-data-platform
+
+services:
+  warehouse:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: warehouse
+    ports:
+      - "5433:5432"
+    volumes:
+      - warehouse-data:/var/lib/postgresql/data
+      - ./warehouse/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d warehouse"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - constella-net
+
+volumes:
+  warehouse-data:
+
+# Shared with StarMart's stack; create it once with `docker network create constella-net`.
+networks:
+  constella-net:
+    external: true

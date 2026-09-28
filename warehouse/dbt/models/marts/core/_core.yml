@@ -1,0 +1,109 @@
+models:
+  - name: dim_segments
+    description: RFM segments with the labels and descriptions Constella shows. Not per tenant.
+    columns:
+      - name: segment
+        data_tests: [unique, not_null]
+
+  - name: dim_categories
+    description: Categories, two levels. top_category_id is the category itself at depth 1.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, category_id]
+    columns:
+      - name: parent_id
+        data_tests:
+          - tenant_relationships:
+              arguments:
+                to: ref('dim_categories')
+                field: category_id
+
+  - name: dim_products
+    description: Each product's current state and current price. Key (tenant_id, sku).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, sku]
+    columns:
+      - name: category_id
+        data_tests:
+          - not_null
+          - tenant_relationships:
+              arguments:
+                to: ref('dim_categories')
+                field: category_id
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [active, inactive]
+      - name: price_cents
+        data_tests: [not_null]
+
+  - name: dim_customers
+    description: >
+      Customers with first and last paid order days, lifetime value and the RFM segment they're
+      in now (as of the day after last_complete_day; null if they've never paid for an order).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, customer_id]
+    columns:
+      - name: current_segment
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_segments')
+                field: segment
+
+  - name: fct_orders
+    description: Every order, all statuses. segment is the customer's RFM segment, paid orders only.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, order_id]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "total_cents = subtotal_cents - discount_cents"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "total_cents >= 0"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(status = 'paid') = (segment is not null)"
+    columns:
+      - name: customer_id
+        data_tests:
+          - not_null
+          - tenant_relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [pending, paid, cancelled]
+      - name: segment
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_segments')
+                field: segment
+
+  - name: fct_order_items
+    description: Lines of paid orders only, with the order's day and segment.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, order_id, sku]
+    columns:
+      - name: sku
+        data_tests:
+          - tenant_relationships:
+              arguments:
+                to: ref('dim_products')
+                field: sku
+      - name: segment
+        data_tests: [not_null]

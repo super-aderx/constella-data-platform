@@ -1,0 +1,74 @@
+name: Warehouse
+
+# Called by ci.yml; can also be run on its own from the Actions tab.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ruff, sqlfluff, pytest, dbt build, replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      warehouse:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: warehouse
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d warehouse"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      # Dev credentials, the same as .env.example; the service container is thrown away.
+      WAREHOUSE_ADMIN_URL: postgresql://postgres:postgres@localhost:5433/warehouse
+      DBT_PG_HOST: localhost
+      DBT_PG_PORT: "5433"
+      DBT_PG_DBNAME: warehouse
+      DBT_PG_USER: dbt_runner
+      DBT_PG_PASSWORD: dbt_runner_dev
+      DATABASE_URL: postgresql://api_reader:api_reader_dev@localhost:5433/warehouse
+    defaults:
+      run:
+        working-directory: warehouse
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: warehouse/uv.lock
+
+      # Service containers can't mount repo files at start, so apply the init SQL here.
+      - name: Apply init SQL
+        run: for f in postgres/init/*.sql; do psql "$WAREHOUSE_ADMIN_URL" -v ON_ERROR_STOP=1 -q -f "$f"; done
+
+      # No --no-build: dbt-core depends on dbt-core-experimental-parser, which is sdist-only.
+      - run: uv sync --locked
+      - run: uv run --locked ruff check --output-format=github
+      - run: uv run --locked ruff format --check
+      - run: uv run --locked pytest
+
+      - name: dbt deps
+        run: uv run --locked dbt deps
+        working-directory: warehouse/dbt
+      - name: sqlfluff (init SQL)
+        run: uv run --locked sqlfluff lint --format github-annotation-native postgres
+      - name: sqlfluff (dbt)
+        run: uv run --locked sqlfluff lint --format github-annotation-native models tests analyses
+        working-directory: warehouse/dbt
+
+      - name: Generate events
+        run: uv run --locked python -m generator --days 120
+      - name: dbt build
+        run: uv run --locked dbt build
+        working-directory: warehouse/dbt
+      - name: Replay check
+        run: uv run --locked python scripts/replay_check.py --days 120

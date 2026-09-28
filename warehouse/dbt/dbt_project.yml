@@ -1,0 +1,58 @@
+name: constella_warehouse
+version: "1.0.0"
+profile: constella_warehouse
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+# One row per build, run or seed in meta.pipeline_runs; Constella keys its cache on it.
+on-run-end: ["{{ record_run(results) }}"]
+
+vars:
+  # A customer's first paid order, and any within this many days of it, is "new".
+  new_customer_days: 30
+  # A local day is complete once its end is this far behind the newest event.
+  completion_grace_minutes: 15
+  # RFM segment rules (macros/rfm_segment.sql), tuned against the generator so every segment
+  # gets at least 3% of Harbor Street's orders over 90 days.
+  rfm:
+    champion_recency_days: 14
+    champion_frequency: 10
+    champion_monetary_cents: 90000
+    loyal_recency_days: 30
+    loyal_frequency: 12
+    active_recency_days: 30
+    at_risk_recency_days: 120
+    at_risk_frequency: 8
+
+models:
+  constella_warehouse:
+    staging:
+      +schema: silver
+      +materialized: view
+    # Fresh tables have no planner statistics until autovacuum runs; analyze them at once so
+    # the models built on them get sane plans.
+    intermediate:
+      +schema: silver
+      +materialized: table
+      +post-hook: ["analyze {{ this }}"]
+    marts:
+      +schema: gold
+      +materialized: table
+      +post-hook: ["analyze {{ this }}"]
+    serving:
+      +schema: serving
+      +materialized: view
+      +contract:
+        enforced: true
+      +grants:
+        select: ["api_reader"]
+      +post-hook: ["{{ set_security_barrier() }}"]
+
+seeds:
+  constella_warehouse:
+    +schema: silver

@@ -1,0 +1,118 @@
+models:
+  - name: stg_tps__events
+    description: >
+      Every TPS event exactly once. Debezium delivers at least once, so the same event_id can
+      arrive at several offsets; the first copy loaded is kept.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, event_id]
+    columns:
+      - name: tenant_id
+        data_tests: [not_null]
+      - name: event_id
+        data_tests: [not_null]
+      - name: occurred_at
+        description: Business time, from StarMart's injected clock. Never use loaded_at for it.
+        data_tests: [not_null]
+      - name: schema_version
+        description: Staging models read version 1; a new version warns until a model handles it.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1]
+                quote: false
+              config:
+                severity: warn
+
+  - name: stg_tps__category_events
+    description: CategoryCreated and CategoryUpdated, each the category's full state.
+    columns:
+      - name: category_id
+        data_tests: [not_null]
+
+  - name: stg_tps__product_events
+    description: ProductCreated and ProductUpdated, each the product's full state.
+    columns:
+      - name: sku
+        data_tests: [not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [active, inactive]
+
+  - name: stg_tps__price_events
+    description: PriceChanged; a SKU's price from valid_from on.
+    columns:
+      - name: amount_cents
+        data_tests: [not_null]
+
+  - name: stg_tps__customer_events
+    description: CustomerRegistered and CustomerUpdated. Ids only; TPS sends no PII.
+    columns:
+      - name: customer_id
+        data_tests: [not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [active, deleted]
+
+  - name: stg_tps__order_placed
+    description: OrderPlaced headers; money in cents, total = subtotal - discount.
+    columns:
+      - name: order_id
+        data_tests: [not_null]
+      - name: customer_id
+        data_tests: [not_null]
+
+  - name: stg_tps__order_items
+    description: The lines of each OrderPlaced event, one per SKU.
+    columns:
+      - name: sku
+        data_tests: [not_null]
+      - name: qty
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+
+  - name: stg_tps__order_status_events
+    description: OrderPaid and OrderCancelled; changed_at is paid_at or cancelled_at.
+    columns:
+      - name: changed_at
+        data_tests: [not_null]
+      - name: reason
+        description: Cancellations only.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [customer, timeout, payment_failed]
+
+  - name: stg_tps__payment_events
+    description: PaymentSucceeded and PaymentFailed, one per attempt.
+    columns:
+      - name: payment_id
+        data_tests: [not_null]
+      - name: attempt
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 3
+
+unit_tests:
+  - name: stg_tps__events_keeps_one_copy_of_a_redelivered_event
+    model: stg_tps__events
+    given:
+      - input: source('bronze', 'tps_events')
+        rows:
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000001", event_type: OrderPaid, schema_version: 1, occurred_at: "2026-09-25 10:00:00+00", aggregate_id: o1, payload: "{}", topic: t, kafka_partition: 0, kafka_offset: 7, loaded_at: "2026-09-25 12:00:00+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000001", event_type: OrderPaid, schema_version: 1, occurred_at: "2026-09-25 10:00:00+00", aggregate_id: o1, payload: "{}", topic: t, kafka_partition: 0, kafka_offset: 3, loaded_at: "2026-09-25 10:00:01+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000001", event_type: OrderPaid, schema_version: 1, occurred_at: "2026-09-25 10:00:00+00", aggregate_id: o1, payload: "{}", topic: t, kafka_partition: 1, kafka_offset: 9, loaded_at: "2026-09-26 08:00:00+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000b", event_id: "0192c000-0000-7000-8000-000000000001", event_type: OrderPaid, schema_version: 1, occurred_at: "2026-09-25 10:00:00+00", aggregate_id: o1, payload: "{}", topic: u, kafka_partition: 0, kafka_offset: 1, loaded_at: "2026-09-25 10:00:02+00"}
+    expect:
+      rows:
+        - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000001", loaded_at: "2026-09-25 10:00:01+00"}
+        - {tenant_id: "00000000-0000-0000-0000-00000000000b", event_id: "0192c000-0000-7000-8000-000000000001", loaded_at: "2026-09-25 10:00:02+00"}

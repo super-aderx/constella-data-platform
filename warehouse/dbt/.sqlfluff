@@ -1,0 +1,8 @@
+# Models, tests and analyses compile through dbt, so ref(), source() and macros lint as dbt
+# builds them. Needs `dbt deps` once; no database connection (keep macros from querying it).
+[sqlfluff]
+templater = dbt
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = .

@@ -1,0 +1,9 @@
+seeds:
+  - name: segments
+    description: RFM segment ids with the labels and descriptions Constella shows.
+    config:
+      column_types:
+        segment: text
+        label: text
+        description: text
+        sort_order: int

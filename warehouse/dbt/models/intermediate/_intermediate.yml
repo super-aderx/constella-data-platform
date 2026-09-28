@@ -1,0 +1,153 @@
+models:
+  - name: int_categories
+    description: Current state of each category. Two levels.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, category_id]
+
+  - name: int_products_history
+    description: SCD2 of each product (name, brand, category, unit, size, status).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, sku, valid_from]
+
+  - name: int_prices_history
+    description: SCD2 of each SKU's price.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, sku, valid_from]
+
+  - name: int_customers
+    description: Current state of each customer.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, customer_id]
+
+  - name: int_orders
+    description: >
+      Each order with its status derived from its events (pending, paid, cancelled) and
+      order_day, the tenant's local date of placed_at.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, order_id]
+    columns:
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [pending, paid, cancelled]
+      - name: order_day
+        data_tests: [not_null]
+
+  - name: int_order_items
+    description: The lines of each order, one per SKU.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, order_id, sku]
+
+  - name: int_payment_attempts
+    description: One row per payment attempt, including failures and their failure_code.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, payment_id]
+
+  - name: int_order_segments
+    description: >
+      Paid orders only: the customer's RFM inputs and segment on the day before the order.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, order_id]
+    columns:
+      - name: segment
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('segments')
+                field: segment
+
+unit_tests:
+  - name: int_orders_status_and_local_day
+    description: >
+      Paid wins over a later cancellation; cancelled-only is cancelled; no status event is
+      pending; a status event without its OrderPlaced is left out; 23:30 on Sep 25 in Los
+      Angeles is Sep 25, although it's Sep 26 in UTC.
+    model: int_orders
+    given:
+      - input: source('platform', 'tenants')
+        rows:
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", timezone: America/Los_Angeles}
+      - input: ref('stg_tps__order_placed')
+        rows:
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000001", occurred_at: "2026-09-25 18:00:00+00", order_id: "00000000-0000-0000-0000-000000000001", placed_at: "2026-09-25 18:00:00+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000002", occurred_at: "2026-09-25 18:00:00+00", order_id: "00000000-0000-0000-0000-000000000002", placed_at: "2026-09-25 18:00:00+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000003", occurred_at: "2026-09-25 18:00:00+00", order_id: "00000000-0000-0000-0000-000000000003", placed_at: "2026-09-25 18:00:00+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_id: "0192c000-0000-7000-8000-000000000004", occurred_at: "2026-09-26 06:30:00+00", order_id: "00000000-0000-0000-0000-000000000004", placed_at: "2026-09-26 06:30:00+00"}
+      - input: ref('stg_tps__order_status_events')
+        rows:
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_type: OrderPaid, order_id: "00000000-0000-0000-0000-000000000001", changed_at: "2026-09-25 18:00:05+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_type: OrderCancelled, order_id: "00000000-0000-0000-0000-000000000001", changed_at: "2026-09-25 18:20:00+00", reason: customer}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_type: OrderCancelled, order_id: "00000000-0000-0000-0000-000000000002", changed_at: "2026-09-25 18:15:00+00", reason: timeout}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_type: OrderPaid, order_id: "00000000-0000-0000-0000-000000000004", changed_at: "2026-09-26 06:30:01+00"}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", event_type: OrderPaid, order_id: "00000000-0000-0000-0000-000000000009", changed_at: "2026-09-25 18:00:00+00"}
+    expect:
+      rows:
+        - {order_id: "00000000-0000-0000-0000-000000000001", status: paid, order_day: "2026-09-25", cancel_reason: customer}
+        - {order_id: "00000000-0000-0000-0000-000000000002", status: cancelled, order_day: "2026-09-25", cancel_reason: timeout}
+        - {order_id: "00000000-0000-0000-0000-000000000003", status: pending, order_day: "2026-09-25", cancel_reason: null}
+        - {order_id: "00000000-0000-0000-0000-000000000004", status: paid, order_day: "2026-09-25", cancel_reason: null}
+
+  - name: int_order_segments_rfm_rules
+    description: >
+      A first order and those within 30 days of it are new; a customer with 12 orders in the
+      last 90 days, the last 5 days ago, spending $960 is a champion; a customer whose last
+      order was 200 days ago is hibernating; unpaid orders get no segment.
+    model: int_order_segments
+    given:
+      - input: ref('int_orders')
+        rows:
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000001", customer_id: "00000000-0000-0000-0000-0000000000a1", order_day: "2026-09-20", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000002", customer_id: "00000000-0000-0000-0000-0000000000a1", order_day: "2026-09-22", status: cancelled, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000100", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-06-26", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000101", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-07-03", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000102", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-07-10", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000103", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-07-17", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000104", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-07-24", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000105", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-07-31", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000106", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-08-07", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000107", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-08-14", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000108", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-08-21", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000109", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-08-28", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000110", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-09-04", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000111", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-09-20", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000112", customer_id: "00000000-0000-0000-0000-0000000000b1", order_day: "2026-09-25", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000200", customer_id: "00000000-0000-0000-0000-0000000000c1", order_day: "2026-01-01", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000201", customer_id: "00000000-0000-0000-0000-0000000000c1", order_day: "2026-01-08", status: paid, total_cents: 8000}
+          - {tenant_id: "00000000-0000-0000-0000-00000000000a", order_id: "00000000-0000-0000-0000-000000000202", customer_id: "00000000-0000-0000-0000-0000000000c1", order_day: "2026-07-27", status: paid, total_cents: 8000}
+    expect:
+      rows:
+        - {order_id: "00000000-0000-0000-0000-000000000001", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000100", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000101", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000102", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000103", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000104", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000105", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000106", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000107", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000108", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000109", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000110", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000111", segment: potential}
+        - {order_id: "00000000-0000-0000-0000-000000000112", segment: champions}
+        - {order_id: "00000000-0000-0000-0000-000000000200", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000201", segment: new}
+        - {order_id: "00000000-0000-0000-0000-000000000202", segment: hibernating}

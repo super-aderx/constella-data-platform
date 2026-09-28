@@ -1,0 +1,48 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "trailing-whitespace" },
+    { id = "end-of-file-fixer" },
+    { id = "check-added-large-files" },
+]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff-check"
+name = "ruff check"
+entry = "uv run --directory warehouse ruff check --fix"
+language = "system"
+files = '^warehouse/.*\.py$'
+pass_filenames = false
+
+[[repos.hooks]]
+id = "ruff-format"
+name = "ruff format"
+entry = "uv run --directory warehouse ruff format"
+language = "system"
+files = '^warehouse/.*\.py$'
+pass_filenames = false
+
+# Two runs, because sqlfluff only takes the dbt templater from a .sqlfluff in the working
+# directory: init SQL from warehouse/ (raw), dbt SQL from warehouse/dbt/ (dbt templater).
+[[repos.hooks]]
+id = "sqlfluff-fix"
+name = "sqlfluff fix"
+entry = "sh -c 'uv run --directory warehouse sqlfluff fix postgres && uv run --directory warehouse/dbt sqlfluff fix models tests analyses'"
+language = "system"
+files = '^warehouse/.*\.sql$'
+pass_filenames = false
+
+[[repos.hooks]]
+id = "sqlfluff-lint"
+name = "sqlfluff lint"
+entry = "sh -c 'uv run --directory warehouse sqlfluff lint postgres && uv run --directory warehouse/dbt sqlfluff lint models tests analyses'"
+language = "system"
+files = '^warehouse/.*\.sql$'
+pass_filenames = false
