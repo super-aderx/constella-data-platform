@@ -4,6 +4,8 @@ The bridge between StarMart (the transactional shop, one deployment per tenant) 
 (the BI app). StarMart publishes business events; this repo loads them unchanged into a Postgres
 warehouse and builds, with dbt, the tables Constellate reads (ELT).
 
+![image](images/constella-architecture-night.png)
+
 ```
 StarMart outbox ──(Debezium, Kafka, loader: P2)──▶ bronze ──dbt──▶ silver ──▶ gold ──▶ serving ──▶ Constellate API
                   └─(generator: dev stand-in, now)─┘
