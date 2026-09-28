@@ -1,0 +1,10 @@
+models:
+  - name: tenant_freshness
+    description: >
+      How far each tenant's data goes. last_complete_day is Constella's "latest day in the
+      data"; the partial day after it is never shown by default.
+    columns:
+      - name: tenant_id
+        data_tests: [unique, not_null]
+      - name: last_complete_day
+        data_tests: [not_null]

@@ -1,0 +1,14 @@
+# Reads only environment variables (see ../../.env.example), so no secrets live here. Every
+# field but the password has a local default, so sqlfluff's dbt templater compiles without .env.
+constella_warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5433') | as_number }}"
+      dbname: "{{ env_var('DBT_PG_DBNAME', 'warehouse') }}"
+      user: "{{ env_var('DBT_PG_USER', 'dbt_runner') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', '') }}"
+      schema: silver
+      threads: 4

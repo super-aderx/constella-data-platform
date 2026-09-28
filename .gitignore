@@ -1,0 +1,31 @@
+# --- Secrets / environment ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*
+*secrets*
+
+# --- Python / uv ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# --- dbt ---
+warehouse/dbt/target/
+warehouse/dbt/dbt_packages/
+warehouse/dbt/logs/
+warehouse/dbt/.user.yml
+logs/
+
+# --- Generator output (--out) ---
+warehouse/out/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store

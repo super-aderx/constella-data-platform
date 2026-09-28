@@ -1,0 +1,12 @@
+models:
+  - name: agg_daily_pair
+    description: >
+      Paid orders containing both products, per local day and segment; the input to Constella's
+      network (support, confidence and lift are computed from sums at query time).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, day, segment, sku_a, sku_b]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "sku_a < sku_b collate \"C\""

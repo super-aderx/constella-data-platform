@@ -1,0 +1,22 @@
+models:
+  - name: agg_daily_orders
+    description: >
+      Paid orders per local day and segment. Only additive columns: sum over any days and
+      segments ("all customers" is the sum over segments), and compute ratios from the sums.
+      revenue_cents is net of discounts.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, day, segment]
+    columns:
+      - name: segment
+        data_tests: [not_null]
+
+  - name: agg_daily_product
+    description: >
+      Paid orders containing each product, per local day and segment. revenue_cents is gross
+      line value, so its sum exceeds agg_daily_orders.revenue_cents by the discounts.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [tenant_id, day, segment, sku]

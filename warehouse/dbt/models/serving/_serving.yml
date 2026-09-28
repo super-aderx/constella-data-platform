@@ -1,0 +1,109 @@
+# The backend contract. Each view reads one mart and filters to the session's tenant
+# (app.tenant_id); api_reader can read only these. Changing a view's columns is a contract
+# change: ship the matching Constella backend change with it.
+models:
+  - name: serving_categories
+    description: The tenant's categories, two levels.
+    config: {alias: categories}
+    columns:
+      - {name: tenant_id, data_type: uuid}
+      - {name: category_id, data_type: uuid}
+      - {name: parent_id, data_type: uuid}
+      - {name: name, data_type: text}
+      - {name: slug, data_type: text}
+      - {name: top_category_id, data_type: uuid}
+
+  - name: serving_products
+    description: The tenant's products with their current price, in cents.
+    config: {alias: products}
+    columns:
+      - {name: tenant_id, data_type: uuid}
+      - {name: product_id, data_type: uuid}
+      - {name: sku, data_type: text}
+      - {name: name, data_type: text}
+      - {name: brand, data_type: text}
+      - {name: category_id, data_type: uuid}
+      - {name: top_category_id, data_type: uuid}
+      - {name: unit, data_type: text}
+      - {name: size, data_type: text}
+      - {name: status, data_type: text}
+      - {name: price_cents, data_type: bigint}
+      - {name: currency, data_type: char(3)}
+
+  - name: serving_daily_orders
+    description: Paid orders per local day and segment; revenue_cents is net of discounts.
+    config: {alias: daily_orders}
+    columns:
+      - {name: tenant_id, data_type: uuid}
+      - {name: day, data_type: date}
+      - {name: segment, data_type: text}
+      - {name: n_orders, data_type: int}
+      - {name: n_lines, data_type: int}
+      - {name: n_items, data_type: int}
+      - {name: subtotal_cents, data_type: bigint}
+      - {name: discount_cents, data_type: bigint}
+      - {name: revenue_cents, data_type: bigint}
+
+  - name: serving_daily_product
+    description: Paid orders containing each product per day and segment; gross line revenue.
+    config: {alias: daily_product}
+    columns:
+      - {name: tenant_id, data_type: uuid}
+      - {name: day, data_type: date}
+      - {name: segment, data_type: text}
+      - {name: sku, data_type: text}
+      - {name: n_orders, data_type: int}
+      - {name: qty, data_type: int}
+      - {name: revenue_cents, data_type: bigint}
+
+  - name: serving_daily_pair
+    description: Paid orders containing both products per day and segment; sku_a < sku_b (bytes).
+    config: {alias: daily_pair}
+    columns:
+      - {name: tenant_id, data_type: uuid}
+      - {name: day, data_type: date}
+      - {name: segment, data_type: text}
+      - {name: sku_a, data_type: text}
+      - {name: sku_b, data_type: text}
+      - {name: n_orders, data_type: int}
+
+  - name: serving_freshness
+    description: >
+      The tenant's data range. last_complete_day is the "latest day in the data" for default
+      date ranges.
+    config: {alias: freshness}
+    columns:
+      - {name: tenant_id, data_type: uuid}
+      - {name: first_day, data_type: date}
+      - {name: last_event_at, data_type: timestamptz}
+      - {name: last_complete_day, data_type: date}
+      - {name: refreshed_at, data_type: timestamptz}
+
+  - name: serving_segments
+    description: RFM segments with labels and descriptions. The same for every tenant.
+    config: {alias: segments}
+    columns:
+      - {name: segment, data_type: text}
+      - {name: label, data_type: text}
+      - {name: description, data_type: text}
+      - {name: sort_order, data_type: int}
+
+exposures:
+  - name: constella_api
+    label: Constella API
+    type: application
+    maturity: low
+    url: https://github.com/super-aderx/Constellate
+    description: >
+      Constella's backend (app/repository.py), connecting as api_reader. Reads only serving.*
+      and meta.*, sets app.tenant_id per transaction and filters tenant_id in every query.
+    owner:
+      name: Constella
+    depends_on:
+      - ref('serving_categories')
+      - ref('serving_products')
+      - ref('serving_daily_orders')
+      - ref('serving_daily_product')
+      - ref('serving_daily_pair')
+      - ref('serving_freshness')
+      - ref('serving_segments')

@@ -1,0 +1,7 @@
+segment,label,description,sort_order
+champions,Champions,"Bought recently, buy often and spend the most",1
+loyal,Loyal,"Buy often, spend a little less",2
+potential,Potential loyalists,Recent customers buying more each month,3
+new,New customers,First order in the last 30 days,4
+at_risk,At risk,"Used to buy often, less so lately",5
+hibernating,Hibernating,Haven't ordered in a long while,6
